@@ -1,6 +1,7 @@
 import asyncio
 import random
 from dataclasses import dataclass
+from typing import Literal
 
 import simpy
 from textual import on
@@ -102,6 +103,7 @@ class SimulationControl(VerticalGroup):
     @on(Button.Pressed, "#start")
     def start_sim(self):
         self.add_class("started")
+        print(self.params)
         self.sim_task = asyncio.create_task(
             self.run_simulation(self.params.start_sim_time, self.params.end_sim_time)
         )
@@ -231,74 +233,68 @@ class SimulationInputs(Vertical):
             self.simparams = simparams
             super().__init__()
 
+    class LabeledInput(HorizontalGroup):
+        def __init__(
+            self,
+            label: str,
+            type: Literal["text", "number", "integer"],
+            input_id: str,
+            params: SimulationParameters,
+        ) -> None:
+            self.label = label
+            self.type: Literal["text", "number", "integer"] = type
+            self.input_id = input_id
+            self.params = params
+            super().__init__()
+
+        def compose(self) -> ComposeResult:
+            yield Label(self.label)
+            yield Input(
+                value=str(self.params.__getattribute__(self.input_id)),
+                type=self.type,
+                id=self.input_id,
+            )
+
+        @on(Input.Changed)
+        def value_changed(self, event: Input.Changed):
+            # todo, have better error handling and validation
+            try:
+                type_to_cast = {"text": str, "number": float, "integer": int}
+                self.params.__setattr__(
+                    self.input_id, type_to_cast[self.type](event.input.value)
+                )
+            except ValueError:
+                print("Error setting attribute")
+
     def compose(self) -> ComposeResult:
-        with VerticalGroup() as vg:
-            vg.border_title = "Control Inputs"
-            with HorizontalGroup():
-                yield Label("Start Time")
-                yield Input(
-                    value=str(self.params.start_sim_time),
-                    type="integer",
-                    id="start_sim_time",
-                )
-            with HorizontalGroup():
-                yield Label("End Time")
-                yield Input(
-                    value=str(self.params.end_sim_time),
-                    type="integer",
-                    id="end_sim_time",
-                )
-            with HorizontalGroup():
-                yield Label("Step Time")
-                yield Input(
-                    value=str(self.params.step_sim_time),
-                    type="number",
-                    id="step_sim_time",
-                )
-            with HorizontalGroup():
-                yield Label("Step Delay (s)")
-                yield Input(
-                    value=str(self.params.step_delay_time),
-                    type="number",
-                    id="step_delay_time",
-                )
-        with VerticalGroup() as vg:
-            vg.border_title = "Simulation Inputs"
-            with HorizontalGroup():
-                yield Label("# of Machines")
-                yield Input(
-                    value=str(self.params.num_machines),
-                    type="integer",
-                    id="num_machines",
-                )
-            with HorizontalGroup():
-                yield Label("Process Time")
-                yield Input(
-                    value=str(self.params.process_time),
-                    type="number",
-                    id="process_time",
-                )
+        with VerticalGroup() as control_inputs:
+            control_inputs.border_title = "Control Inputs"
+
+            yield self.LabeledInput(
+                "Start Time", "integer", "start_sim_time", self.params
+            )
+            yield self.LabeledInput("End Time", "integer", "end_sim_time", self.params)
+            yield self.LabeledInput(
+                "Step Time", "integer", "step_sim_time", self.params
+            )
+            yield self.LabeledInput(
+                "Step Delay (s)", "number", "step_delay_time", self.params
+            )
+        with VerticalGroup() as simulation_inputs:
+            simulation_inputs.border_title = "Simulation Inputs"
+            yield self.LabeledInput(
+                "# of Machines", "integer", "num_machines", self.params
+            )
+            yield self.LabeledInput(
+                "Process Time", "number", "process_time", self.params
+            )
 
     # def on_mount(self):
     #     self.post_message(self.SimulationInputsUpdated(self.params))
 
     @on(Input.Changed)
     def params_updated(self, event: Input.Changed) -> None:
-        value = event.input.value
-        if event.input.value == "":
-            value = 0
-        if event.input.id == "start_sim_time":
-            self.params.start_sim_time = int(value)
-        if event.input.id == "end_sim_time":
-            self.params.end_sim_time = int(value)
-        if event.input.id == "step_sim_time":
-            self.params.step_sim_time = int(value)
-        if event.input.id == "step_delay_time":
-            self.params.step_delay_time = float(value)
-        if event.input.id == "num_machines":
-            self.params.num_machines = int(value)
-        if event.input.id == "process_time":
-            self.params.process_time = float(value)
+        print("PARAMETERS UDPATED")
 
         self.post_message(self.SimulationInputsUpdated(self.params))
 
