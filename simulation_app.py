@@ -20,11 +20,16 @@ from textual.widgets import (
 )
 
 
+# todo, update more params to be float
+# todo, add random seed
 @dataclass
-class SimParams:
-    sim_duration: int
-    num_machines: int
-    process_time: int
+class SimulationParameters:
+    start_sim_time: int = 0
+    end_sim_time: int = 100
+    step_sim_time: int = 1
+    step_delay_time: float = 0.05
+    num_machines: int = 5
+    process_time: float = 10
 
 
 class FactorySim:
@@ -65,9 +70,8 @@ def part_arrival(env: simpy.Environment, sim: FactorySim):
 
 class SimulationControl(VerticalGroup):
     sim_task: asyncio.Task | None
-    start_sim_time: float
-    end_sim_time: float
     current_sim_time: float
+    params = SimulationParameters
 
     class SimulationIteration(Message):
         def __init__(self, sim: FactorySim) -> None:
@@ -75,18 +79,16 @@ class SimulationControl(VerticalGroup):
             super().__init__()
 
     def __init__(self) -> None:
-        self.start_sim_time = 0
         self.current_sim_time = 0
-        self.end_sim_time = 100
         self.sim_task = None
-        self.sim_params = SimParams(sim_duration=100, num_machines=5, process_time=10)
+        self.params = SimulationParameters()
 
         super().__init__()
 
     def compose(self) -> ComposeResult:
         self.border_title = "Simulation Control"
         with HorizontalGroup(id="toppart"):
-            yield ProgressBar(total=self.end_sim_time, show_eta=False)
+            yield ProgressBar(total=self.params.end_sim_time, show_eta=False)
             yield Label("0/100", id="progress-label")
             with HorizontalGroup(id="button-menu"):
                 yield Button("Start", variant="success", id="start")
@@ -101,11 +103,12 @@ class SimulationControl(VerticalGroup):
     def start_sim(self):
         self.add_class("started")
         self.sim_task = asyncio.create_task(
-            self.run_simulation(self.start_sim_time, self.end_sim_time)
+            self.run_simulation(self.params.start_sim_time, self.params.end_sim_time)
         )
 
     @on(Button.Pressed, "#pause-resume")
     def pause_resume_sim(self, event: Button.Pressed):
+        # todo, fix button pause resume state out of sync
         if self.paused:
             self.resume_sim()
             self.paused = False
@@ -123,7 +126,7 @@ class SimulationControl(VerticalGroup):
 
     def resume_sim(self):
         self.sim_task = asyncio.create_task(
-            self.run_simulation(self.current_sim_time, self.end_sim_time)
+            self.run_simulation(self.current_sim_time, self.params.end_sim_time)
         )
 
     @on(Button.Pressed, "#reset")
@@ -136,38 +139,35 @@ class SimulationControl(VerticalGroup):
         self.env = simpy.Environment()
         self.sim = FactorySim(
             self.env,
-            num_machines=self.sim_params.num_machines,
-            process_time=self.sim_params.process_time,
+            num_machines=self.params.num_machines,
+            process_time=self.params.process_time,
         )
         self.env.process(part_arrival(self.env, self.sim))
 
-        self.current_sim_time = self.start_sim_time
+        self.current_sim_time = self.params.start_sim_time
         self.paused = False
 
-        self.query_one(ProgressBar).update(
-            total=self.sim_params.sim_duration, progress=0
-        )
+        self.query_one(ProgressBar).update(total=self.params.end_sim_time, progress=0)
         self.update_progress_label()
         self.post_message(self.SimulationIteration(self.sim))
 
     async def run_simulation(self, start, end):
-        for i in range(start, end):
-            await asyncio.sleep(0.05)
-            self.current_sim_time = i + 1
+        # todo, fix step sim time, should be float
+        for i in range(start, end, self.params.step_sim_time):
+            await asyncio.sleep(self.params.step_delay_time)
+            self.current_sim_time = i + self.params.step_sim_time
             self.env.run(until=self.current_sim_time)
 
             self.query_one(ProgressBar).update(progress=self.current_sim_time)
             self.update_progress_label()
             self.post_message(self.SimulationIteration(self.sim))
 
-    def update_params(self, simparams: SimParams):
-        self.sim_params = simparams
-
-        self.end_sim_time = simparams.sim_duration
+    def update_params(self, simparams: SimulationParameters):
+        self.params = simparams
 
     def update_progress_label(self):
         self.query_one("#progress-label", Label).update(
-            f"{self.current_sim_time:.0f}/{self.end_sim_time:.0f}"
+            f"{self.current_sim_time:.0f}/{self.params.end_sim_time:.0f}"
         )
 
 
@@ -220,43 +220,85 @@ class SimulationAnimation(Vertical):
         )
 
 
+# todo, parameterize inputs better
 class SimulationInputs(Vertical):
     def __init__(self):
-        self.params = SimParams(sim_duration=100, num_machines=5, process_time=10)
+        self.params = SimulationParameters()
         super().__init__()
 
     class SimulationInputsUpdated(Message):
-        def __init__(self, simparams: SimParams) -> None:
+        def __init__(self, simparams: SimulationParameters) -> None:
             self.simparams = simparams
             super().__init__()
 
     def compose(self) -> ComposeResult:
-        with Vertical():
-            yield Label("Duration")
-            yield Input(
-                value=str(self.params.sim_duration), type="integer", id="sim_duration"
-            )
-            yield Label("Number of Machines")
-            yield Input(
-                value=str(self.params.num_machines), type="integer", id="num_machines"
-            )
-            yield Label("Process Time")
-            yield Input(
-                value=str(self.params.process_time), type="integer", id="process_time"
-            )
-            yield Button("Another button")
+        with VerticalGroup() as vg:
+            vg.border_title = "Control Inputs"
+            with HorizontalGroup():
+                yield Label("Start Time")
+                yield Input(
+                    value=str(self.params.start_sim_time),
+                    type="integer",
+                    id="start_sim_time",
+                )
+            with HorizontalGroup():
+                yield Label("End Time")
+                yield Input(
+                    value=str(self.params.end_sim_time),
+                    type="integer",
+                    id="end_sim_time",
+                )
+            with HorizontalGroup():
+                yield Label("Step Time")
+                yield Input(
+                    value=str(self.params.step_sim_time),
+                    type="number",
+                    id="step_sim_time",
+                )
+            with HorizontalGroup():
+                yield Label("Step Delay (s)")
+                yield Input(
+                    value=str(self.params.step_delay_time),
+                    type="number",
+                    id="step_delay_time",
+                )
+        with VerticalGroup() as vg:
+            vg.border_title = "Simulation Inputs"
+            with HorizontalGroup():
+                yield Label("# of Machines")
+                yield Input(
+                    value=str(self.params.num_machines),
+                    type="integer",
+                    id="num_machines",
+                )
+            with HorizontalGroup():
+                yield Label("Process Time")
+                yield Input(
+                    value=str(self.params.process_time),
+                    type="number",
+                    id="process_time",
+                )
 
-    def on_mount(self):
-        self.post_message(self.SimulationInputsUpdated(self.params))
+    # def on_mount(self):
+    #     self.post_message(self.SimulationInputsUpdated(self.params))
 
     @on(Input.Changed)
     def params_updated(self, event: Input.Changed) -> None:
-        if event.input.id == "sim_duration":
-            self.params.sim_duration = int(event.input.value)
+        value = event.input.value
+        if event.input.value == "":
+            value = 0
+        if event.input.id == "start_sim_time":
+            self.params.start_sim_time = int(value)
+        if event.input.id == "end_sim_time":
+            self.params.end_sim_time = int(value)
+        if event.input.id == "step_sim_time":
+            self.params.step_sim_time = int(value)
+        if event.input.id == "step_delay_time":
+            self.params.step_delay_time = float(value)
         if event.input.id == "num_machines":
-            self.params.num_machines = int(event.input.value)
+            self.params.num_machines = int(value)
         if event.input.id == "process_time":
-            self.params.process_time = int(event.input.value)
+            self.params.process_time = float(value)
 
         self.post_message(self.SimulationInputsUpdated(self.params))
 

@@ -84,6 +84,17 @@ MachineDisplay.active {
 }
 
 Input {
-    # height: 1;
-    # border: none;
+    height: 1;
+    border: none;
 }
+
+SimulationInputs VerticalGroup {
+    border: round $primary;
+    padding-left:1;
+    padding-right:1;
+}
+
+SimulationInputs HorizontalGroup Label {
+    width: 16;
+}
+
