@@ -1,0 +1,84 @@
+SimulationControl {
+    border:round $primary;
+    padding-left: 1;
+    padding-right:1;
+    height: 3;
+}
+
+#toppart {
+    height: 1
+}
+
+SimulationControl ProgressBar{
+    dock: left;
+}
+
+SimulationControl #progress-label{
+    text-align: center;
+    width: 100%
+}
+
+SimulationControl #button-menu {
+    dock: right;
+    width: auto;
+    # height:1;
+}
+
+SimulationControl #button-menu Button {
+    border: none;
+}
+
+Bar > .bar--bar {
+    color: $primary;
+    background: $primary 30%;
+}
+
+QueueDisplay {
+    height: 3;
+    border: round $primary;
+    padding-left:1;
+    padding-right:1;
+}
+
+QueueDisplay #items {
+    padding-left:2;
+}
+
+MachineDisplay {
+    # width: 16;
+    height: 3;
+    padding-left:1;
+    padding-right:1;
+    border: round $primary;
+}
+
+MachineDisplay #part {
+    width: 100%
+}
+
+MachineDisplay.active {
+    border: round $success;
+}
+
+#machine-grid {
+    # width:32;
+    grid-size: 3 2;
+}
+
+#content  {
+    # border: round $primary;
+    height: 1fr;
+}
+
+#pause-resume {
+    display: none;
+}
+
+
+.started #start {
+    display: none;
+}
+
+.started #pause-resume {
+    display: block;
+}
