@@ -62,7 +62,7 @@ MachineDisplay.active {
 
 #machine-grid {
     # width:32;
-    grid-size: 3 2;
+    grid-size: 3;
 }
 
 #content  {
@@ -81,4 +81,9 @@ MachineDisplay.active {
 
 .started #pause-resume {
     display: block;
+}
+
+Input {
+    # height: 1;
+    # border: none;
 }

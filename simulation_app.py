@@ -1,7 +1,6 @@
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Callable
 
 import simpy
 from textual import on
@@ -80,6 +79,8 @@ class SimulationControl(VerticalGroup):
         self.current_sim_time = 0
         self.end_sim_time = 100
         self.sim_task = None
+        self.sim_params = SimParams(sim_duration=100, num_machines=5, process_time=10)
+
         super().__init__()
 
     def compose(self) -> ComposeResult:
@@ -197,48 +198,37 @@ class SimulationAnimation(Vertical):
                 self.add_class("active")
 
     def compose(self) -> ComposeResult:
-        # self.queue_display = Static("Queue: []", id="queue")
         self.queue_display = self.QueueDisplay()
 
-        # self.active_display = Label("Active Machines: []", id="active")
-        # self.time_display = Label("Simulation Time: []", id="sim_time")
-        # self.real_time_display = Static("Real Time: []", id="real_time")
-
         yield self.queue_display
-        with ItemGrid(id="machine-grid"):
-            yield self.MachineDisplay("machine-1", id="machine-1")
-            yield self.MachineDisplay("machine-2", id="machine-2")
-            yield self.MachineDisplay("machine-3", id="machine-3")
-            yield self.MachineDisplay("machine-4", id="machine-4")
-            yield self.MachineDisplay("machine-5", id="machine-5")
-        # yield self.active_display
-        # yield self.time_display
-        # yield self.real_time_display
+        yield ItemGrid(id="machine-grid")
+
+    def on_mount(self):
+        self.update_machine_grid(5)
 
     def update_text(self, sim: FactorySim):
-        # self.real_time_display.update(f"Real Time: {datetime.now().time()}")
-
-        # Update UI
-        # self.time_display.update(f"Simulation Time: {sim.env.now}")
         self.queue_display.update(sim.machine.queue.__len__())
         for i, machine_display in enumerate(self.query(self.MachineDisplay)):
             machine_display.update_part(
                 sim.active_parts[i] if i < len(sim.active_parts) else None
             )
-        # for i, part_id in enumerate(sim.active_parts):
-        #     self.query_one(f"#machine-{i + 1}", self.MachineDisplay).update_part(
-        #         part_id
-        #     )
-        # self.active_display.update(
-        #     f"Active Parts: {' '.join(['X' for i in sim.machine.users])}"
-        # )
+
+    def update_machine_grid(self, num: int):
+        self.query_one("#machine-grid").remove_children()
+        self.query_one("#machine-grid").mount_all(
+            [self.MachineDisplay(f"machine-{i + 1}") for i in range(num)]
+        )
 
 
 class SimulationInputs(Vertical):
-    def __init__(self, callback_params_updated: Callable[[SimParams], None]):
+    def __init__(self):
         self.params = SimParams(sim_duration=100, num_machines=5, process_time=10)
-        self.callback_params_updated = callback_params_updated
         super().__init__()
+
+    class SimulationInputsUpdated(Message):
+        def __init__(self, simparams: SimParams) -> None:
+            self.simparams = simparams
+            super().__init__()
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -257,7 +247,7 @@ class SimulationInputs(Vertical):
             yield Button("Another button")
 
     def on_mount(self):
-        self.callback_params_updated(self.params)
+        self.post_message(self.SimulationInputsUpdated(self.params))
 
     @on(Input.Changed)
     def params_updated(self, event: Input.Changed) -> None:
@@ -268,7 +258,7 @@ class SimulationInputs(Vertical):
         if event.input.id == "process_time":
             self.params.process_time = int(event.input.value)
 
-        self.callback_params_updated(self.params)
+        self.post_message(self.SimulationInputsUpdated(self.params))
 
 
 class SimulationApp(App):
@@ -280,9 +270,7 @@ class SimulationApp(App):
         """Create UI elements."""
         self.simani = SimulationAnimation(id="sim_animation")
         self.simcontrol = SimulationControl()
-        self.siminputs = SimulationInputs(
-            callback_params_updated=self.simcontrol.update_params
-        )
+        self.siminputs = SimulationInputs()
 
         yield Header()
         yield Footer()
@@ -298,6 +286,11 @@ class SimulationApp(App):
     @on(SimulationControl.SimulationIteration)
     def animate_iteration(self, message: SimulationControl.SimulationIteration):
         self.simani.update_text(message.sim)
+
+    @on(SimulationInputs.SimulationInputsUpdated)
+    def simparams_update(self, message: SimulationInputs.SimulationInputsUpdated):
+        self.simani.update_machine_grid(message.simparams.num_machines)
+        self.simcontrol.update_params(message.simparams)
 
 
 if __name__ == "__main__":
