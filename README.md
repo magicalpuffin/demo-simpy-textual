@@ -3,5 +3,5 @@
 Example demonstrating how to use visualize simpy with textual
 
 ```
-ptw . --runner "textual" run --dev "textualtest.py"
+ptw . --runner "textual" run --dev "simulation_app.py"
 ```

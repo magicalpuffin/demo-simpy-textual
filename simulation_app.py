@@ -271,10 +271,10 @@ class SimulationInputs(Vertical):
         self.callback_params_updated(self.params)
 
 
-class MachineShopSimulation(App):
+class SimulationApp(App):
     """Textual application to visualize the SimPy simulation."""
 
-    CSS_PATH = "./textualtest.tcss"
+    CSS_PATH = "./simulation_app.tcss"
 
     def compose(self) -> ComposeResult:
         """Create UI elements."""
@@ -301,4 +301,4 @@ class MachineShopSimulation(App):
 
 
 if __name__ == "__main__":
-    MachineShopSimulation().run()
+    SimulationApp().run()
