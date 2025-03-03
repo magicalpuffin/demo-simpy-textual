@@ -60,17 +60,24 @@ class Machine:
 
     """
 
-    def __init__(self, env, name, repairman):
+    def __init__(
+        self,
+        env: simpy.Environment,
+        name: str,
+        repairman: simpy.PreemptiveResource,
+        store: simpy.Store,
+    ):
         self.env = env
         self.name = name
         self.parts_made = 0
+        self.part_id: int | None = None
         self.broken = False
 
         # Start "working" and "break_machine" processes for this machine.
-        self.process = env.process(self.working(repairman))
+        self.process = env.process(self.working(repairman, store))
         env.process(self.break_machine())
 
-    def working(self, repairman):
+    def working(self, repairman: simpy.PreemptiveResource, store: simpy.Store):
         """Produce parts as long as the simulation runs.
 
         While making a part, the machine may break multiple times.
@@ -79,6 +86,7 @@ class Machine:
         """
         while True:
             # Start making a new part
+            self.part_id = yield store.get()
             done_in = time_per_part()
             while done_in:
                 start = self.env.now
@@ -99,18 +107,19 @@ class Machine:
                     self.broken = False
 
             # Part is done.
+            self.part_id = None
             self.parts_made += 1
 
     def break_machine(self):
         """Break the machine every now and then."""
         while True:
             yield self.env.timeout(time_to_failure())
-            if not self.broken:
+            if not self.broken and self.part_id:
                 # Only break the machine if it is currently working.
                 self.process.interrupt()
 
 
-def other_jobs(env, repairman):
+def other_jobs(env: simpy.Environment, repairman: simpy.PreemptiveResource):
     """The repairman's other (unimportant) job."""
     while True:
         # Start a new job
@@ -128,20 +137,44 @@ def other_jobs(env, repairman):
                     done_in -= env.now - start
 
 
+def part_arrival(
+    env: simpy.Environment, store: simpy.Store, mean_time_to_arrive: float
+):
+    part_num = 1
+    while True:
+        yield env.timeout(random.expovariate(1 / mean_time_to_arrive))
+        yield store.put(part_num)
+        part_num += 1
+
+
+class MachineShop:
+    def __init__(
+        self, env: simpy.Environment, num_machines: int, repair_capacity: int
+    ) -> None:
+        self.env = env
+        self.repairman = simpy.PreemptiveResource(env, capacity=repair_capacity)
+        self.store = simpy.Store(env)
+        self.machines = [
+            Machine(env, f"Machine {i + 1}", self.repairman, self.store)
+            for i in range(num_machines)
+        ]
+        self.env.process(part_arrival(env, self.store, 1.5))
+        self.env.process(other_jobs(env, self.repairman))
+
+
 # Setup and start the simulation
 print("Machine shop")
 random.seed(RANDOM_SEED)  # This helps to reproduce the results
 
 # Create an environment and start the setup process
 env = simpy.Environment()
-repairman = simpy.PreemptiveResource(env, capacity=1)
-machines = [Machine(env, f"Machine {i}", repairman) for i in range(NUM_MACHINES)]
-env.process(other_jobs(env, repairman))
+sim = MachineShop(env, 5, 1)
+
 
 # Execute!
 env.run(until=SIM_TIME)
 
 # Analysis/results
 print(f"Machine shop results after {WEEKS} weeks")
-for machine in machines:
+for machine in sim.machines:
     print(f"{machine.name} made {machine.parts_made} parts.")
