@@ -1,5 +1,4 @@
 import asyncio
-import random
 from dataclasses import dataclass
 from typing import Literal
 
@@ -20,6 +19,8 @@ from textual.widgets import (
     TabbedContent,
 )
 
+from machine_shop import MachineShop
+
 
 # todo, update more params to be float
 # todo, add random seed
@@ -30,43 +31,43 @@ class SimulationParameters:
     step_sim_time: int = 1
     step_delay_time: float = 0.05
     num_machines: int = 5
-    process_time: float = 10
+    mean_process_time: float = 10
 
 
-class FactorySim:
-    """SimPy-based factory simulation with a queue and machine status."""
+# class FactorySim:
+#     """SimPy-based factory simulation with a queue and machine status."""
 
-    def __init__(self, env: simpy.Environment, num_machines: int, process_time: float):
-        self.env = env
-        self.machine = simpy.Resource(env, num_machines)
-        self.process_time = process_time
-        self.queue = []  # Parts waiting for processing
-        self.active_parts: list[int] = []  # Parts currently being processed
+#     def __init__(self, env: simpy.Environment, num_machines: int, process_time: float):
+#         self.env = env
+#         self.machine = simpy.Resource(env, num_machines)
+#         self.process_time = process_time
+#         self.queue = []  # Parts waiting for processing
+#         self.active_parts: list[int] = []  # Parts currently being processed
 
-    def process_part(self, part_id: int):
-        """Simulate part processing and track queue state."""
-        self.queue.append(part_id)  # Add part to queue
-        with self.machine.request() as req:
-            yield req  # Wait for an available machine
-            self.queue.remove(part_id)  # Remove from queue
-            self.active_parts.append(part_id)  # Mark as processing
+#     def process_part(self, part_id: int):
+#         """Simulate part processing and track queue state."""
+#         self.queue.append(part_id)  # Add part to queue
+#         with self.machine.request() as req:
+#             yield req  # Wait for an available machine
+#             self.queue.remove(part_id)  # Remove from queue
+#             self.active_parts.append(part_id)  # Mark as processing
 
-            yield self.env.timeout(
-                random.uniform(self.process_time * 0.8, self.process_time * 1.2)
-            )  # Processing time
+#             yield self.env.timeout(
+#                 random.uniform(self.process_time * 0.8, self.process_time * 1.2)
+#             )  # Processing time
 
-            self.active_parts.remove(part_id)  # Mark as completed
+#             self.active_parts.remove(part_id)  # Mark as completed
 
 
-def part_arrival(env: simpy.Environment, sim: FactorySim):
-    """Parts arrive at random intervals."""
-    part_id = 0
-    while True:
-        yield env.timeout(
-            random.expovariate(1.0 / 2.0)
-        )  # New part ~ every 5 time units
-        env.process(sim.process_part(part_id))
-        part_id += 1
+# def part_arrival(env: simpy.Environment, sim: FactorySim):
+#     """Parts arrive at random intervals."""
+#     part_id = 0
+#     while True:
+#         yield env.timeout(
+#             random.expovariate(1.0 / 2.0)
+#         )  # New part ~ every 5 time units
+#         env.process(sim.process_part(part_id))
+#         part_id += 1
 
 
 class SimulationControl(VerticalGroup):
@@ -75,7 +76,7 @@ class SimulationControl(VerticalGroup):
     params = SimulationParameters
 
     class SimulationIteration(Message):
-        def __init__(self, sim: FactorySim) -> None:
+        def __init__(self, sim: MachineShop) -> None:
             self.sim = sim
             super().__init__()
 
@@ -139,12 +140,16 @@ class SimulationControl(VerticalGroup):
 
     def init_simulation(self):
         self.env = simpy.Environment()
-        self.sim = FactorySim(
+        self.sim = MachineShop(
             self.env,
             num_machines=self.params.num_machines,
-            process_time=self.params.process_time,
+            num_repairman=2,
+            mean_time_to_arrive=2,
+            mean_process_time=self.params.mean_process_time,
+            stdv_process_time=2,
+            mean_time_to_failure=100,
+            repair_time=30,
         )
-        self.env.process(part_arrival(self.env, self.sim))
 
         self.current_sim_time = self.params.start_sim_time
         self.paused = False
@@ -189,15 +194,19 @@ class SimulationAnimation(Vertical):
     class MachineDisplay(Static):
         def compose(self) -> ComposeResult:
             self.border_title = self._content
-            self.active_part = Label("", id="part")
+            self.active_part = Label("Part: None", id="part")
             yield self.active_part
 
-        def update_part(self, part_id: None | int):
+        def update_part(self, part_id: None | int, broken: bool):
             self.active_part.update(f"Part: {part_id}")
             if part_id is None:
                 self.remove_class("active")
             else:
                 self.add_class("active")
+            if broken:
+                self.add_class("broken")
+            else:
+                self.remove_class("broken")
 
     def compose(self) -> ComposeResult:
         self.queue_display = self.QueueDisplay()
@@ -206,14 +215,13 @@ class SimulationAnimation(Vertical):
         yield ItemGrid(id="machine-grid")
 
     def on_mount(self):
+        # todo, have better default
         self.update_machine_grid(5)
 
-    def update_text(self, sim: FactorySim):
-        self.queue_display.update(sim.machine.queue.__len__())
+    def update_text(self, sim: MachineShop):
+        self.queue_display.update(sim.store.items.__len__())
         for i, machine_display in enumerate(self.query(self.MachineDisplay)):
-            machine_display.update_part(
-                sim.active_parts[i] if i < len(sim.active_parts) else None
-            )
+            machine_display.update_part(sim.machines[i].part_id, sim.machines[i].broken)
 
     def update_machine_grid(self, num: int):
         self.query_one("#machine-grid").remove_children()
@@ -286,7 +294,7 @@ class SimulationInputs(Vertical):
                 "# of Machines", "integer", "num_machines", self.params
             )
             yield self.LabeledInput(
-                "Process Time", "number", "process_time", self.params
+                "Process Time", "number", "mean_process_time", self.params
             )
 
     # def on_mount(self):

@@ -36,20 +36,6 @@ SIM_TIME = WEEKS * 7 * 24 * 60  # Simulation time in minutes
 # fmt: on
 
 
-def time_per_part():
-    """Return actual processing time for a concrete part."""
-    t = random.normalvariate(PT_MEAN, PT_SIGMA)
-    # The normalvariate can be negative, but we want only positive times.
-    while t <= 0:
-        t = random.normalvariate(PT_MEAN, PT_SIGMA)
-    return t
-
-
-def time_to_failure():
-    """Return time until next failure for a machine."""
-    return random.expovariate(BREAK_MEAN)
-
-
 class Machine:
     """A machine produces parts and may get broken every now and then.
 
@@ -66,6 +52,10 @@ class Machine:
         name: str,
         repairman: simpy.PreemptiveResource,
         store: simpy.Store,
+        mean_process_time: float,
+        stdv_process_time: float,
+        mean_time_to_failure: float,
+        repair_time: float,
     ):
         self.env = env
         self.name = name
@@ -74,10 +64,21 @@ class Machine:
         self.broken = False
 
         # Start "working" and "break_machine" processes for this machine.
-        self.process = env.process(self.working(repairman, store))
-        env.process(self.break_machine())
+        self.process = env.process(
+            self.working(
+                repairman, store, mean_process_time, stdv_process_time, repair_time
+            )
+        )
+        env.process(self.break_machine(mean_time_to_failure))
 
-    def working(self, repairman: simpy.PreemptiveResource, store: simpy.Store):
+    def working(
+        self,
+        repairman: simpy.PreemptiveResource,
+        store: simpy.Store,
+        mean_process_time: float,
+        stdv_process_time: float,
+        repair_time: float,
+    ):
         """Produce parts as long as the simulation runs.
 
         While making a part, the machine may break multiple times.
@@ -87,7 +88,7 @@ class Machine:
         while True:
             # Start making a new part
             self.part_id = yield store.get()
-            done_in = time_per_part()
+            done_in = self.time_per_part(mean_process_time, stdv_process_time)
             while done_in:
                 start = self.env.now
                 try:
@@ -102,7 +103,7 @@ class Machine:
                     # Request a repairman. This will preempt its "other_job".
                     with repairman.request(priority=1) as req:
                         yield req
-                        yield self.env.timeout(REPAIR_TIME)
+                        yield self.env.timeout(repair_time)
 
                     self.broken = False
 
@@ -110,20 +111,34 @@ class Machine:
             self.part_id = None
             self.parts_made += 1
 
-    def break_machine(self):
+    def break_machine(self, mean_time_to_failure: float):
         """Break the machine every now and then."""
         while True:
-            yield self.env.timeout(time_to_failure())
+            yield self.env.timeout(self.time_to_failure(mean_time_to_failure))
             if not self.broken and self.part_id:
                 # Only break the machine if it is currently working.
                 self.process.interrupt()
 
+    def time_per_part(self, mean: float, stdv: float):
+        """Return actual processing time for a concrete part."""
+        t = random.normalvariate(mean, stdv)
+        # The normalvariate can be negative, but we want only positive times.
+        while t <= 0:
+            t = random.normalvariate(mean, stdv)
+        return t
 
-def other_jobs(env: simpy.Environment, repairman: simpy.PreemptiveResource):
+    def time_to_failure(self, mean_time_to_failure: float):
+        """Return time until next failure for a machine."""
+        return random.expovariate(1 / mean_time_to_failure)
+
+
+def other_jobs(
+    env: simpy.Environment, repairman: simpy.PreemptiveResource, job_duration: float
+):
     """The repairman's other (unimportant) job."""
     while True:
         # Start a new job
-        done_in = JOB_DURATION
+        done_in = job_duration
         while done_in:
             # Retry the job until it is done.
             # Its priority is lower than that of machine repairs.
@@ -149,17 +164,34 @@ def part_arrival(
 
 class MachineShop:
     def __init__(
-        self, env: simpy.Environment, num_machines: int, repair_capacity: int
+        self,
+        env: simpy.Environment,
+        num_machines: int,
+        num_repairman: int,
+        mean_time_to_arrive: float,
+        mean_process_time: float,
+        stdv_process_time: float,
+        mean_time_to_failure: float,
+        repair_time: float,
     ) -> None:
         self.env = env
-        self.repairman = simpy.PreemptiveResource(env, capacity=repair_capacity)
+        self.repairman = simpy.PreemptiveResource(env, capacity=num_repairman)
         self.store = simpy.Store(env)
         self.machines = [
-            Machine(env, f"Machine {i + 1}", self.repairman, self.store)
+            Machine(
+                env,
+                f"Machine {i + 1}",
+                self.repairman,
+                self.store,
+                mean_process_time,
+                stdv_process_time,
+                mean_time_to_failure,
+                repair_time,
+            )
             for i in range(num_machines)
         ]
-        self.env.process(part_arrival(env, self.store, 1.5))
-        self.env.process(other_jobs(env, self.repairman))
+        self.env.process(part_arrival(env, self.store, mean_time_to_arrive))
+        self.env.process(other_jobs(env, self.repairman, 30))
 
 
 # Setup and start the simulation
@@ -168,7 +200,16 @@ random.seed(RANDOM_SEED)  # This helps to reproduce the results
 
 # Create an environment and start the setup process
 env = simpy.Environment()
-sim = MachineShop(env, 5, 1)
+sim = MachineShop(
+    env=env,
+    num_machines=5,
+    num_repairman=1,
+    mean_time_to_arrive=2,
+    mean_process_time=10,
+    stdv_process_time=2,
+    mean_time_to_failure=300,
+    repair_time=30,
+)
 
 
 # Execute!

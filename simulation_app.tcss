@@ -60,6 +60,10 @@ MachineDisplay.active {
     border: round $success;
 }
 
+MachineDisplay.broken {
+    border: round $error;
+}
+
 #machine-grid {
     # width:32;
     grid-size: 3;
