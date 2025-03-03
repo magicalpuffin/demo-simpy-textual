@@ -194,28 +194,28 @@ class MachineShop:
         self.env.process(other_jobs(env, self.repairman, 30))
 
 
-# Setup and start the simulation
-print("Machine shop")
-random.seed(RANDOM_SEED)  # This helps to reproduce the results
+# # Setup and start the simulation
+# print("Machine shop")
+# random.seed(RANDOM_SEED)  # This helps to reproduce the results
 
-# Create an environment and start the setup process
-env = simpy.Environment()
-sim = MachineShop(
-    env=env,
-    num_machines=5,
-    num_repairman=1,
-    mean_time_to_arrive=2,
-    mean_process_time=10,
-    stdv_process_time=2,
-    mean_time_to_failure=300,
-    repair_time=30,
-)
+# # Create an environment and start the setup process
+# env = simpy.Environment()
+# sim = MachineShop(
+#     env=env,
+#     num_machines=5,
+#     num_repairman=1,
+#     mean_time_to_arrive=2,
+#     mean_process_time=10,
+#     stdv_process_time=2,
+#     mean_time_to_failure=300,
+#     repair_time=30,
+# )
 
 
-# Execute!
-env.run(until=SIM_TIME)
+# # Execute!
+# env.run(until=SIM_TIME)
 
-# Analysis/results
-print(f"Machine shop results after {WEEKS} weeks")
-for machine in sim.machines:
-    print(f"{machine.name} made {machine.parts_made} parts.")
+# # Analysis/results
+# print(f"Machine shop results after {WEEKS} weeks")
+# for machine in sim.machines:
+#     print(f"{machine.name} made {machine.parts_made} parts.")

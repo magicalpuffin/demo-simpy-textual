@@ -27,47 +27,16 @@ from machine_shop import MachineShop
 @dataclass
 class SimulationParameters:
     start_sim_time: int = 0
-    end_sim_time: int = 100
+    end_sim_time: int = 1000
     step_sim_time: int = 1
     step_delay_time: float = 0.05
     num_machines: int = 5
+    num_repairman: int = 1
+    mean_time_to_arrive: float = 2
     mean_process_time: float = 10
-
-
-# class FactorySim:
-#     """SimPy-based factory simulation with a queue and machine status."""
-
-#     def __init__(self, env: simpy.Environment, num_machines: int, process_time: float):
-#         self.env = env
-#         self.machine = simpy.Resource(env, num_machines)
-#         self.process_time = process_time
-#         self.queue = []  # Parts waiting for processing
-#         self.active_parts: list[int] = []  # Parts currently being processed
-
-#     def process_part(self, part_id: int):
-#         """Simulate part processing and track queue state."""
-#         self.queue.append(part_id)  # Add part to queue
-#         with self.machine.request() as req:
-#             yield req  # Wait for an available machine
-#             self.queue.remove(part_id)  # Remove from queue
-#             self.active_parts.append(part_id)  # Mark as processing
-
-#             yield self.env.timeout(
-#                 random.uniform(self.process_time * 0.8, self.process_time * 1.2)
-#             )  # Processing time
-
-#             self.active_parts.remove(part_id)  # Mark as completed
-
-
-# def part_arrival(env: simpy.Environment, sim: FactorySim):
-#     """Parts arrive at random intervals."""
-#     part_id = 0
-#     while True:
-#         yield env.timeout(
-#             random.expovariate(1.0 / 2.0)
-#         )  # New part ~ every 5 time units
-#         env.process(sim.process_part(part_id))
-#         part_id += 1
+    stdv_process_time: float = 2
+    mean_time_to_failure: float = 300
+    repair_time: float = 30
 
 
 class SimulationControl(VerticalGroup):
@@ -143,12 +112,12 @@ class SimulationControl(VerticalGroup):
         self.sim = MachineShop(
             self.env,
             num_machines=self.params.num_machines,
-            num_repairman=2,
-            mean_time_to_arrive=2,
+            num_repairman=self.params.num_repairman,
+            mean_time_to_arrive=self.params.mean_time_to_arrive,
             mean_process_time=self.params.mean_process_time,
-            stdv_process_time=2,
-            mean_time_to_failure=100,
-            repair_time=30,
+            stdv_process_time=self.params.stdv_process_time,
+            mean_time_to_failure=self.params.mean_time_to_failure,
+            repair_time=self.params.repair_time,
         )
 
         self.current_sim_time = self.params.start_sim_time
@@ -230,7 +199,6 @@ class SimulationAnimation(Vertical):
         )
 
 
-# todo, parameterize inputs better
 class SimulationInputs(Vertical):
     def __init__(self):
         self.params = SimulationParameters()
@@ -277,7 +245,6 @@ class SimulationInputs(Vertical):
     def compose(self) -> ComposeResult:
         with VerticalGroup() as control_inputs:
             control_inputs.border_title = "Control Inputs"
-
             yield self.LabeledInput(
                 "Start Time", "integer", "start_sim_time", self.params
             )
@@ -294,8 +261,21 @@ class SimulationInputs(Vertical):
                 "# of Machines", "integer", "num_machines", self.params
             )
             yield self.LabeledInput(
-                "Process Time", "number", "mean_process_time", self.params
+                "# of Repairman", "integer", "num_repairman", self.params
             )
+            yield self.LabeledInput(
+                "Mean Time to Arrive", "number", "mean_time_to_arrive", self.params
+            )
+            yield self.LabeledInput(
+                "Mean Process Time", "number", "mean_process_time", self.params
+            )
+            yield self.LabeledInput(
+                "Stdv Process Time", "number", "stdv_process_time", self.params
+            )
+            yield self.LabeledInput(
+                "Mean Time to Failure", "number", "mean_time_to_failure", self.params
+            )
+            yield self.LabeledInput("Repair Time", "number", "repair_time", self.params)
 
     # def on_mount(self):
     #     self.post_message(self.SimulationInputsUpdated(self.params))
