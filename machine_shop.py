@@ -20,8 +20,10 @@ Scenario:
 
 import random
 from dataclasses import dataclass, field
+from typing import Any
 
 import simpy
+from simpy.resources.store import StoreGet, StorePut
 
 # # fmt: off
 # RANDOM_SEED = 42
@@ -83,6 +85,7 @@ class Machine:
         self.parts_made = 0
         self.part_id: int | None = None
         self.broken = False
+        self.log_parts: list[tuple[float, int]] = []
 
         # Start "working" and "break_machine" processes for this machine.
         self.process = env.process(
@@ -135,6 +138,7 @@ class Machine:
             # Part is done.
             self.part_id = None
             self.parts_made += 1
+            self.log_parts.append((self.env.now, self.parts_made))
 
     def break_machine(self, mean_time_to_failure: float):
         """Break the machine every now and then."""
@@ -187,11 +191,25 @@ def part_arrival(
         part_num += 1
 
 
+class MonitorStore(simpy.Store):
+    def __init__(self, env: simpy.Environment, capacity: float | int = float("inf")):
+        self.log_queue: list[tuple[float, int]] = []
+        super().__init__(env, capacity)
+
+    def put(self, item: Any) -> StorePut:
+        self.log_queue.append((self._env.now, len(self.items)))
+        return super().put(item)
+
+    def get(self) -> StoreGet:
+        self.log_queue.append((self._env.now, len(self.items)))
+        return super().get()
+
+
 class MachineShop:
     def __init__(self, env: simpy.Environment, params: MachineShopParams) -> None:
         self.env = env
         self.repairman = simpy.PreemptiveResource(env, capacity=params.num_repairman)
-        self.store = simpy.Store(env)
+        self.store = MonitorStore(env)
         self.machines = [
             Machine(
                 env,

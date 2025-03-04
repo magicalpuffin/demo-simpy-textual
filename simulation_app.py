@@ -5,7 +5,13 @@ from typing import Literal
 import simpy
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import HorizontalGroup, ItemGrid, Vertical, VerticalGroup
+from textual.containers import (
+    HorizontalGroup,
+    ItemGrid,
+    Vertical,
+    VerticalGroup,
+    VerticalScroll,
+)
 from textual.message import Message
 from textual.widgets import (
     Button,
@@ -18,6 +24,7 @@ from textual.widgets import (
     Static,
     TabbedContent,
 )
+from textual_plotext import PlotextPlot
 
 from machine_shop import MachineShop, MachineShopParams
 
@@ -324,6 +331,42 @@ class SimulationInputs(Vertical):
         self.post_message(self.MachineShopParamsUpdated(self.machine_shop_params))
 
 
+class SimulationFigures(VerticalScroll):
+    def compose(self) -> ComposeResult:
+        self.parts_over_time = PlotextPlot()
+        self.queue_over_time = PlotextPlot()
+        yield self.parts_over_time
+        yield self.queue_over_time
+
+    def on_mount(self) -> None:
+        self.parts_over_time.plt.title("Machine 1 Parts Over Time")
+        self.parts_over_time.plt.xlabel("Simulation Time")
+        self.parts_over_time.plt.ylabel("Parts")
+
+        self.queue_over_time.plt.title("Queue Over Time")
+        self.queue_over_time.plt.xlabel("Simulation Time")
+        self.queue_over_time.plt.ylabel("Queue")
+
+    def update_figures(self, sim: MachineShop):
+        self.parts_over_time.plt.clear_data()
+        timevals = []
+        num_parts = []
+        for i in sim.machines[0].log_parts[-50:]:
+            timevals.append(i[0])
+            num_parts.append(i[1])
+        self.parts_over_time.plt.plot(timevals, num_parts)
+        self.parts_over_time.refresh()
+
+        self.queue_over_time.plt.clear_data()
+        queue_timevals = []
+        queue_num_parts = []
+        for i in sim.store.log_queue[-50:]:
+            queue_timevals.append(i[0])
+            queue_num_parts.append(i[1])
+        self.queue_over_time.plt.plot(queue_timevals, queue_num_parts)
+        self.queue_over_time.refresh()
+
+
 class SimulationApp(App):
     """Textual application to visualize the SimPy simulation."""
 
@@ -334,6 +377,7 @@ class SimulationApp(App):
         self.animation = SimulationAnimation(id="sim_animation")
         self.control = SimulationControl()
         self.inputs = SimulationInputs()
+        self.figures = SimulationFigures()
 
         yield Header()
         yield Footer()
@@ -343,11 +387,12 @@ class SimulationApp(App):
             yield self.animation
             yield self.inputs
             yield Markdown()
-            yield Markdown()
+            yield self.figures
 
     @on(SimulationControl.SimulationIteration)
     def animate_iteration(self, message: SimulationControl.SimulationIteration):
         self.animation.update_text(message.sim)
+        self.figures.update_figures(message.sim)
 
     @on(SimulationInputs.SimulationControlParamsUpdated)
     def simulation_control_params_update(

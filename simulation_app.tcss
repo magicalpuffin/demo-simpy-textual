@@ -102,3 +102,6 @@ SimulationInputs HorizontalGroup Label {
     width: 24;
 }
 
+PlotextPlot {
+    height: 100%;
+}
