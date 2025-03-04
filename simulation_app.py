@@ -19,30 +19,24 @@ from textual.widgets import (
     TabbedContent,
 )
 
-from machine_shop import MachineShop
+from machine_shop import MachineShop, MachineShopParams
 
 
 # todo, update more params to be float
 # todo, add random seed
 @dataclass
-class SimulationParameters:
+class SimulationControlParams:
     start_sim_time: int = 0
     end_sim_time: int = 1000
     step_sim_time: int = 1
     step_delay_time: float = 0.05
-    num_machines: int = 5
-    num_repairman: int = 1
-    mean_time_to_arrive: float = 2
-    mean_process_time: float = 10
-    stdv_process_time: float = 2
-    mean_time_to_failure: float = 300
-    repair_time: float = 30
 
 
 class SimulationControl(VerticalGroup):
     sim_task: asyncio.Task | None
     current_sim_time: float
-    params = SimulationParameters
+    simulation_control_params: SimulationControlParams
+    machine_shop_params: MachineShopParams
 
     class SimulationIteration(Message):
         def __init__(self, sim: MachineShop) -> None:
@@ -52,14 +46,17 @@ class SimulationControl(VerticalGroup):
     def __init__(self) -> None:
         self.current_sim_time = 0
         self.sim_task = None
-        self.params = SimulationParameters()
+        self.simulation_control_params = SimulationControlParams()
+        self.machine_shop_params = MachineShopParams()
 
         super().__init__()
 
     def compose(self) -> ComposeResult:
         self.border_title = "Simulation Control"
         with HorizontalGroup(id="toppart"):
-            yield ProgressBar(total=self.params.end_sim_time, show_eta=False)
+            yield ProgressBar(
+                total=self.simulation_control_params.end_sim_time, show_eta=False
+            )
             yield Label("0/100", id="progress-label")
             with HorizontalGroup(id="button-menu"):
                 yield Button("Start", variant="success", id="start")
@@ -73,9 +70,12 @@ class SimulationControl(VerticalGroup):
     @on(Button.Pressed, "#start")
     def start_sim(self):
         self.add_class("started")
-        print(self.params)
+        print(self.simulation_control_params)
         self.sim_task = asyncio.create_task(
-            self.run_simulation(self.params.start_sim_time, self.params.end_sim_time)
+            self.run_simulation(
+                self.simulation_control_params.start_sim_time,
+                self.simulation_control_params.end_sim_time,
+            )
         )
 
     @on(Button.Pressed, "#pause-resume")
@@ -98,7 +98,9 @@ class SimulationControl(VerticalGroup):
 
     def resume_sim(self):
         self.sim_task = asyncio.create_task(
-            self.run_simulation(self.current_sim_time, self.params.end_sim_time)
+            self.run_simulation(
+                self.current_sim_time, self.simulation_control_params.end_sim_time
+            )
         )
 
     @on(Button.Pressed, "#reset")
@@ -109,41 +111,37 @@ class SimulationControl(VerticalGroup):
 
     def init_simulation(self):
         self.env = simpy.Environment()
-        self.sim = MachineShop(
-            self.env,
-            num_machines=self.params.num_machines,
-            num_repairman=self.params.num_repairman,
-            mean_time_to_arrive=self.params.mean_time_to_arrive,
-            mean_process_time=self.params.mean_process_time,
-            stdv_process_time=self.params.stdv_process_time,
-            mean_time_to_failure=self.params.mean_time_to_failure,
-            repair_time=self.params.repair_time,
-        )
+        self.sim = MachineShop(self.env, params=self.machine_shop_params)
 
-        self.current_sim_time = self.params.start_sim_time
+        self.current_sim_time = self.simulation_control_params.start_sim_time
         self.paused = False
 
-        self.query_one(ProgressBar).update(total=self.params.end_sim_time, progress=0)
+        self.query_one(ProgressBar).update(
+            total=self.simulation_control_params.end_sim_time, progress=0
+        )
         self.update_progress_label()
         self.post_message(self.SimulationIteration(self.sim))
 
     async def run_simulation(self, start, end):
         # todo, fix step sim time, should be float
-        for i in range(start, end, self.params.step_sim_time):
-            await asyncio.sleep(self.params.step_delay_time)
-            self.current_sim_time = i + self.params.step_sim_time
+        for i in range(start, end, self.simulation_control_params.step_sim_time):
+            await asyncio.sleep(self.simulation_control_params.step_delay_time)
+            self.current_sim_time = i + self.simulation_control_params.step_sim_time
             self.env.run(until=self.current_sim_time)
 
             self.query_one(ProgressBar).update(progress=self.current_sim_time)
             self.update_progress_label()
             self.post_message(self.SimulationIteration(self.sim))
 
-    def update_params(self, simparams: SimulationParameters):
-        self.params = simparams
+    def update_simulation_control_params(self, params: SimulationControlParams):
+        self.simulation_control_params = params
+
+    def update_machine_shop_params(self, params: MachineShopParams):
+        self.machine_shop_params = params
 
     def update_progress_label(self):
         self.query_one("#progress-label", Label).update(
-            f"{self.current_sim_time:.0f}/{self.params.end_sim_time:.0f}"
+            f"{self.current_sim_time:.0f}/{self.simulation_control_params.end_sim_time:.0f}"
         )
 
 
@@ -164,10 +162,15 @@ class SimulationAnimation(Vertical):
         def compose(self) -> ComposeResult:
             self.border_title = self._content
             self.active_part = Label("Part: None", id="part")
+            self.parts_made = Label("Parts Made", id="parts_made")
+
+            yield self.parts_made
             yield self.active_part
 
-        def update_part(self, part_id: None | int, broken: bool):
+        def update_part(self, part_id: None | int, broken: bool, parts_made: int):
             self.active_part.update(f"Part: {part_id}")
+            self.active_part.update(f"Parts Made: {parts_made}")
+
             if part_id is None:
                 self.remove_class("active")
             else:
@@ -190,7 +193,11 @@ class SimulationAnimation(Vertical):
     def update_text(self, sim: MachineShop):
         self.queue_display.update(sim.store.items.__len__())
         for i, machine_display in enumerate(self.query(self.MachineDisplay)):
-            machine_display.update_part(sim.machines[i].part_id, sim.machines[i].broken)
+            machine_display.update_part(
+                sim.machines[i].part_id,
+                sim.machines[i].broken,
+                sim.machines[i].parts_made,
+            )
 
     def update_machine_grid(self, num: int):
         self.query_one("#machine-grid").remove_children()
@@ -201,12 +208,18 @@ class SimulationAnimation(Vertical):
 
 class SimulationInputs(Vertical):
     def __init__(self):
-        self.params = SimulationParameters()
+        self.simulation_control_params = SimulationControlParams()
+        self.machine_shop_params = MachineShopParams()
         super().__init__()
 
-    class SimulationInputsUpdated(Message):
-        def __init__(self, simparams: SimulationParameters) -> None:
-            self.simparams = simparams
+    class SimulationControlParamsUpdated(Message):
+        def __init__(self, params: SimulationControlParams) -> None:
+            self.params = params
+            super().__init__()
+
+    class MachineShopParamsUpdated(Message):
+        def __init__(self, params: MachineShopParams) -> None:
+            self.params = params
             super().__init__()
 
     class LabeledInput(HorizontalGroup):
@@ -215,7 +228,7 @@ class SimulationInputs(Vertical):
             label: str,
             type: Literal["text", "number", "integer"],
             input_id: str,
-            params: SimulationParameters,
+            params: object,
         ) -> None:
             self.label = label
             self.type: Literal["text", "number", "integer"] = type
@@ -246,45 +259,69 @@ class SimulationInputs(Vertical):
         with VerticalGroup() as control_inputs:
             control_inputs.border_title = "Control Inputs"
             yield self.LabeledInput(
-                "Start Time", "integer", "start_sim_time", self.params
+                "Start Time",
+                "integer",
+                "start_sim_time",
+                self.simulation_control_params,
             )
-            yield self.LabeledInput("End Time", "integer", "end_sim_time", self.params)
             yield self.LabeledInput(
-                "Step Time", "integer", "step_sim_time", self.params
+                "End Time", "integer", "end_sim_time", self.simulation_control_params
             )
             yield self.LabeledInput(
-                "Step Delay (s)", "number", "step_delay_time", self.params
+                "Step Time", "integer", "step_sim_time", self.simulation_control_params
+            )
+            yield self.LabeledInput(
+                "Step Delay (s)",
+                "number",
+                "step_delay_time",
+                self.simulation_control_params,
             )
         with VerticalGroup() as simulation_inputs:
             simulation_inputs.border_title = "Simulation Inputs"
             yield self.LabeledInput(
-                "# of Machines", "integer", "num_machines", self.params
+                "# of Machines", "integer", "num_machines", self.machine_shop_params
             )
             yield self.LabeledInput(
-                "# of Repairman", "integer", "num_repairman", self.params
+                "# of Repairman", "integer", "num_repairman", self.machine_shop_params
             )
             yield self.LabeledInput(
-                "Mean Time to Arrive", "number", "mean_time_to_arrive", self.params
+                "Mean Time to Arrive",
+                "number",
+                "mean_time_to_arrive",
+                self.machine_shop_params,
             )
             yield self.LabeledInput(
-                "Mean Process Time", "number", "mean_process_time", self.params
+                "Mean Process Time",
+                "number",
+                "mean_process_time",
+                self.machine_shop_params.machine_params,
             )
             yield self.LabeledInput(
-                "Stdv Process Time", "number", "stdv_process_time", self.params
+                "Stdv Process Time",
+                "number",
+                "stdv_process_time",
+                self.machine_shop_params.machine_params,
             )
             yield self.LabeledInput(
-                "Mean Time to Failure", "number", "mean_time_to_failure", self.params
+                "Mean Time to Failure",
+                "number",
+                "mean_time_to_failure",
+                self.machine_shop_params.machine_params,
             )
-            yield self.LabeledInput("Repair Time", "number", "repair_time", self.params)
-
-    # def on_mount(self):
-    #     self.post_message(self.SimulationInputsUpdated(self.params))
+            yield self.LabeledInput(
+                "Repair Time",
+                "number",
+                "repair_time",
+                self.machine_shop_params.machine_params,
+            )
 
     @on(Input.Changed)
     def params_updated(self, event: Input.Changed) -> None:
         print("PARAMETERS UDPATED")
-
-        self.post_message(self.SimulationInputsUpdated(self.params))
+        self.post_message(
+            self.SimulationControlParamsUpdated(self.simulation_control_params)
+        )
+        self.post_message(self.MachineShopParamsUpdated(self.machine_shop_params))
 
 
 class SimulationApp(App):
@@ -294,29 +331,36 @@ class SimulationApp(App):
 
     def compose(self) -> ComposeResult:
         """Create UI elements."""
-        self.simani = SimulationAnimation(id="sim_animation")
-        self.simcontrol = SimulationControl()
-        self.siminputs = SimulationInputs()
+        self.animation = SimulationAnimation(id="sim_animation")
+        self.control = SimulationControl()
+        self.inputs = SimulationInputs()
 
         yield Header()
         yield Footer()
-        yield self.simcontrol
+        yield self.control
 
         with TabbedContent("Simulation", "Params", "Logs", "Figures", id="content"):
-            with Vertical():
-                yield self.simani
-            yield self.siminputs
+            yield self.animation
+            yield self.inputs
             yield Markdown()
             yield Markdown()
 
     @on(SimulationControl.SimulationIteration)
     def animate_iteration(self, message: SimulationControl.SimulationIteration):
-        self.simani.update_text(message.sim)
+        self.animation.update_text(message.sim)
 
-    @on(SimulationInputs.SimulationInputsUpdated)
-    def simparams_update(self, message: SimulationInputs.SimulationInputsUpdated):
-        self.simani.update_machine_grid(message.simparams.num_machines)
-        self.simcontrol.update_params(message.simparams)
+    @on(SimulationInputs.SimulationControlParamsUpdated)
+    def simulation_control_params_update(
+        self, message: SimulationInputs.SimulationControlParamsUpdated
+    ):
+        self.control.update_simulation_control_params(message.params)
+
+    @on(SimulationInputs.MachineShopParamsUpdated)
+    def machine_shop_params_update(
+        self, message: SimulationInputs.MachineShopParamsUpdated
+    ):
+        self.animation.update_machine_grid(message.params.num_machines)
+        self.control.update_machine_shop_params(message.params)
 
 
 if __name__ == "__main__":

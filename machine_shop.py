@@ -19,21 +19,45 @@ Scenario:
 """
 
 import random
+from dataclasses import dataclass, field
 
 import simpy
 
-# fmt: off
-RANDOM_SEED = 42
-PT_MEAN = 10.0         # Avg. processing time in minutes
-PT_SIGMA = 2.0         # Sigma of processing time
-MTTF = 300.0           # Mean time to failure in minutes
-BREAK_MEAN = 1 / MTTF  # Param. for expovariate distribution
-REPAIR_TIME = 30.0     # Time it takes to repair a machine in minutes
-JOB_DURATION = 30.0    # Duration of other jobs in minutes
-NUM_MACHINES = 10      # Number of machines in the machine shop
-WEEKS = 4              # Simulation time in weeks
-SIM_TIME = WEEKS * 7 * 24 * 60  # Simulation time in minutes
-# fmt: on
+# # fmt: off
+# RANDOM_SEED = 42
+# PT_MEAN = 10.0         # Avg. processing time in minutes
+# PT_SIGMA = 2.0         # Sigma of processing time
+# MTTF = 300.0           # Mean time to failure in minutes
+# BREAK_MEAN = 1 / MTTF  # Param. for expovariate distribution
+# REPAIR_TIME = 30.0     # Time it takes to repair a machine in minutes
+# JOB_DURATION = 30.0    # Duration of other jobs in minutes
+# NUM_MACHINES = 10      # Number of machines in the machine shop
+# WEEKS = 4              # Simulation time in weeks
+# SIM_TIME = WEEKS * 7 * 24 * 60  # Simulation time in minutes
+# # fmt: on
+
+
+@dataclass
+class MachineParams:
+    mean_process_time: float
+    stdv_process_time: float
+    mean_time_to_failure: float
+    repair_time: float
+
+
+@dataclass
+class MachineShopParams:
+    num_machines: int = 5
+    num_repairman: int = 1
+    mean_time_to_arrive: float = 2
+    machine_params: MachineParams = field(
+        default_factory=lambda: MachineParams(
+            mean_process_time=10,
+            stdv_process_time=2,
+            mean_time_to_failure=300,
+            repair_time=30,
+        )
+    )
 
 
 class Machine:
@@ -52,10 +76,7 @@ class Machine:
         name: str,
         repairman: simpy.PreemptiveResource,
         store: simpy.Store,
-        mean_process_time: float,
-        stdv_process_time: float,
-        mean_time_to_failure: float,
-        repair_time: float,
+        params: MachineParams,
     ):
         self.env = env
         self.name = name
@@ -66,10 +87,14 @@ class Machine:
         # Start "working" and "break_machine" processes for this machine.
         self.process = env.process(
             self.working(
-                repairman, store, mean_process_time, stdv_process_time, repair_time
+                repairman,
+                store,
+                params.mean_process_time,
+                params.stdv_process_time,
+                params.repair_time,
             )
         )
-        env.process(self.break_machine(mean_time_to_failure))
+        env.process(self.break_machine(params.mean_time_to_failure))
 
     def working(
         self,
@@ -163,19 +188,9 @@ def part_arrival(
 
 
 class MachineShop:
-    def __init__(
-        self,
-        env: simpy.Environment,
-        num_machines: int,
-        num_repairman: int,
-        mean_time_to_arrive: float,
-        mean_process_time: float,
-        stdv_process_time: float,
-        mean_time_to_failure: float,
-        repair_time: float,
-    ) -> None:
+    def __init__(self, env: simpy.Environment, params: MachineShopParams) -> None:
         self.env = env
-        self.repairman = simpy.PreemptiveResource(env, capacity=num_repairman)
+        self.repairman = simpy.PreemptiveResource(env, capacity=params.num_repairman)
         self.store = simpy.Store(env)
         self.machines = [
             Machine(
@@ -183,14 +198,11 @@ class MachineShop:
                 f"Machine {i + 1}",
                 self.repairman,
                 self.store,
-                mean_process_time,
-                stdv_process_time,
-                mean_time_to_failure,
-                repair_time,
+                params.machine_params,
             )
-            for i in range(num_machines)
+            for i in range(params.num_machines)
         ]
-        self.env.process(part_arrival(env, self.store, mean_time_to_arrive))
+        self.env.process(part_arrival(env, self.store, params.mean_time_to_arrive))
         self.env.process(other_jobs(env, self.repairman, 30))
 
 
