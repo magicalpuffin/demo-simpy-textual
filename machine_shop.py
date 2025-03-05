@@ -85,7 +85,11 @@ class Machine:
         self.parts_made = 0
         self.part_id: int | None = None
         self.broken = False
-        self.log_parts: list[tuple[float, int]] = []
+        self.broken_duraton = 0
+        self.idle_duration = 0
+        self.log_parts: list[tuple[float, int]] = [(0, 0)]
+        self.log_broken_duration: list[tuple[float, float]] = [(0, 0)]
+        self.log_idle_duration: list[tuple[float, float]] = [(0, 0)]
 
         # Start "working" and "break_machine" processes for this machine.
         self.process = env.process(
@@ -115,7 +119,11 @@ class Machine:
         """
         while True:
             # Start making a new part
+            idle_start = self.env.now
+            self.log_idle_duration.append((self.env.now, self.idle_duration))
             self.part_id = yield store.get()
+            self.idle_duration += self.env.now - idle_start
+            self.log_idle_duration.append((self.env.now, self.idle_duration))
             done_in = self.time_per_part(mean_process_time, stdv_process_time)
             while done_in:
                 start = self.env.now
@@ -126,6 +134,8 @@ class Machine:
 
                 except simpy.Interrupt:
                     self.broken = True
+                    broken_start = self.env.now
+                    self.log_broken_duration.append((self.env.now, self.broken_duraton))
                     done_in -= self.env.now - start  # How much time left?
 
                     # Request a repairman. This will preempt its "other_job".
@@ -134,6 +144,8 @@ class Machine:
                         yield self.env.timeout(repair_time)
 
                     self.broken = False
+                    self.broken_duraton += self.env.now - broken_start
+                    self.log_broken_duration.append((self.env.now, self.broken_duraton))
 
             # Part is done.
             self.part_id = None

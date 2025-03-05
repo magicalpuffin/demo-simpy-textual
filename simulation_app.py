@@ -171,12 +171,12 @@ class SimulationAnimation(Vertical):
             self.active_part = Label("Part: None", id="part")
             self.parts_made = Label("Parts Made", id="parts_made")
 
-            yield self.parts_made
             yield self.active_part
+            yield self.parts_made
 
         def update_part(self, part_id: None | int, broken: bool, parts_made: int):
             self.active_part.update(f"Part: {part_id}")
-            self.active_part.update(f"Parts Made: {parts_made}")
+            self.parts_made.update(f"Parts Made: {parts_made}")
 
             if part_id is None:
                 self.remove_class("active")
@@ -335,8 +335,16 @@ class SimulationFigures(VerticalScroll):
     def compose(self) -> ComposeResult:
         self.parts_over_time = PlotextPlot()
         self.queue_over_time = PlotextPlot()
-        yield self.parts_over_time
-        yield self.queue_over_time
+        self.idle_duration_over_time = PlotextPlot()
+        self.broken_duration_over_time = PlotextPlot()
+
+        with HorizontalGroup():
+            yield self.parts_over_time
+            yield self.queue_over_time
+
+        with HorizontalGroup():
+            yield self.idle_duration_over_time
+            yield self.broken_duration_over_time
 
     def on_mount(self) -> None:
         self.parts_over_time.plt.title("Machine 1 Parts Over Time")
@@ -347,24 +355,35 @@ class SimulationFigures(VerticalScroll):
         self.queue_over_time.plt.xlabel("Simulation Time")
         self.queue_over_time.plt.ylabel("Queue")
 
+        self.idle_duration_over_time.plt.title("Idle Duration Over Time")
+        self.idle_duration_over_time.plt.xlabel("Simulation Time")
+        self.idle_duration_over_time.plt.ylabel("Idle Duration")
+
+        self.broken_duration_over_time.plt.title("Broken Duration Over Time")
+        self.broken_duration_over_time.plt.xlabel("Simulation Time")
+        self.broken_duration_over_time.plt.ylabel("Broken Duration")
+
     def update_figures(self, sim: MachineShop):
         self.parts_over_time.plt.clear_data()
-        timevals = []
-        num_parts = []
-        for i in sim.machines[0].log_parts[-50:]:
-            timevals.append(i[0])
-            num_parts.append(i[1])
-        self.parts_over_time.plt.plot(timevals, num_parts)
+        self.parts_over_time.plt.plot(*list(zip(*sim.machines[0].log_parts[-50:])))
+        self.parts_over_time.plt.plot(*list(zip(*sim.machines[1].log_parts[-50:])))
         self.parts_over_time.refresh()
 
         self.queue_over_time.plt.clear_data()
-        queue_timevals = []
-        queue_num_parts = []
-        for i in sim.store.log_queue[-50:]:
-            queue_timevals.append(i[0])
-            queue_num_parts.append(i[1])
-        self.queue_over_time.plt.plot(queue_timevals, queue_num_parts)
+        self.queue_over_time.plt.plot(*list(zip(*sim.store.log_queue[-50:])))
         self.queue_over_time.refresh()
+
+        self.idle_duration_over_time.plt.clear_data()
+        self.idle_duration_over_time.plt.plot(
+            *list(zip(*sim.machines[0].log_idle_duration[-50:]))
+        )
+        self.idle_duration_over_time.refresh()
+
+        self.broken_duration_over_time.plt.clear_data()
+        self.broken_duration_over_time.plt.plot(
+            *list(zip(*sim.machines[0].log_broken_duration[-50:]))
+        )
+        self.broken_duration_over_time.refresh()
 
 
 class SimulationApp(App):

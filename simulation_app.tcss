@@ -102,6 +102,18 @@ SimulationInputs HorizontalGroup Label {
     width: 24;
 }
 
-PlotextPlot {
-    height: 100%;
+SimulationFigures HorizontalGroup {
+    height: 50%
 }
+
+# SimulationFigures {
+#     layout: grid;
+#     grid-size: 2
+# }
+
+# PlotextPlot {
+#     padding-left:1;
+#     padding-right:1;
+#     width: 50%;
+#     height: 50%;
+# }
