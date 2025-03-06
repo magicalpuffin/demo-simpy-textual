@@ -1,7 +1,8 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, Sequence
 
+import polars as pl
 import simpy
 from textual import on
 from textual.app import App, ComposeResult
@@ -332,11 +333,39 @@ class SimulationInputs(Vertical):
 
 
 class SimulationFigures(VerticalScroll):
+    class LinePlot(PlotextPlot):
+        def __init__(self, title: str, xlabel: str, ylabel: str):
+            self.title = title
+            self.xlabel = xlabel
+            self.ylabel = ylabel
+            super().__init__()
+
+        def on_mount(self):
+            self.plt.title(self.title)
+            self.plt.xlabel(self.xlabel)
+            self.plt.ylabel(self.ylabel)
+
+        def refresh_plot(self, *args: Sequence[Any]):
+            self.plt.clear_data()
+            self.plt.plot(*args)
+            self.refresh()
+
     def compose(self) -> ComposeResult:
-        self.parts_over_time = PlotextPlot()
-        self.queue_over_time = PlotextPlot()
-        self.idle_duration_over_time = PlotextPlot()
-        self.broken_duration_over_time = PlotextPlot()
+        self.parts_over_time = self.LinePlot(
+            title="Parts Over Time", xlabel="Time", ylabel="# of Parts"
+        )
+        self.queue_over_time = self.LinePlot(
+            title="Queue Over Time", xlabel="Time", ylabel="# in Queue"
+        )
+        self.idle_duration_over_time = self.LinePlot(
+            title="Idle Duration Over Time", xlabel="Time", ylabel="Idle Duration"
+        )
+        self.broken_duration_over_time = self.LinePlot(
+            title="Broken Duration Over Time", xlabel="Time", ylabel="Broken Duration"
+        )
+        self.parts_cycle_time = self.LinePlot(
+            title="Parts Cycle Time", xlabel="Time", ylabel="Cycle Time"
+        )
 
         with HorizontalGroup():
             yield self.parts_over_time
@@ -346,44 +375,49 @@ class SimulationFigures(VerticalScroll):
             yield self.idle_duration_over_time
             yield self.broken_duration_over_time
 
-    def on_mount(self) -> None:
-        self.parts_over_time.plt.title("Machine 1 Parts Over Time")
-        self.parts_over_time.plt.xlabel("Simulation Time")
-        self.parts_over_time.plt.ylabel("Parts")
-
-        self.queue_over_time.plt.title("Queue Over Time")
-        self.queue_over_time.plt.xlabel("Simulation Time")
-        self.queue_over_time.plt.ylabel("Queue")
-
-        self.idle_duration_over_time.plt.title("Idle Duration Over Time")
-        self.idle_duration_over_time.plt.xlabel("Simulation Time")
-        self.idle_duration_over_time.plt.ylabel("Idle Duration")
-
-        self.broken_duration_over_time.plt.title("Broken Duration Over Time")
-        self.broken_duration_over_time.plt.xlabel("Simulation Time")
-        self.broken_duration_over_time.plt.ylabel("Broken Duration")
+        with HorizontalGroup():
+            yield self.parts_cycle_time
 
     def update_figures(self, sim: MachineShop):
-        self.parts_over_time.plt.clear_data()
-        self.parts_over_time.plt.plot(*list(zip(*sim.machines[0].log_parts[-50:])))
-        self.parts_over_time.plt.plot(*list(zip(*sim.machines[1].log_parts[-50:])))
-        self.parts_over_time.refresh()
+        if len(sim.metrics_log) < 1:
+            return
 
-        self.queue_over_time.plt.clear_data()
-        self.queue_over_time.plt.plot(*list(zip(*sim.store.log_queue[-50:])))
-        self.queue_over_time.refresh()
-
-        self.idle_duration_over_time.plt.clear_data()
-        self.idle_duration_over_time.plt.plot(
-            *list(zip(*sim.machines[0].log_idle_duration[-50:]))
+        df = pl.DataFrame(sim.metrics_log).tail(50)
+        self.parts_over_time.refresh_plot(
+            df.to_dict()["time"].to_list(),
+            df.to_dict()["total_parts_made"].to_list(),
         )
-        self.idle_duration_over_time.refresh()
-
-        self.broken_duration_over_time.plt.clear_data()
-        self.broken_duration_over_time.plt.plot(
-            *list(zip(*sim.machines[0].log_broken_duration[-50:]))
+        self.queue_over_time.refresh_plot(
+            df.to_dict()["time"].to_list(), df.to_dict()["queue_items"].to_list()
         )
-        self.broken_duration_over_time.refresh()
+        self.idle_duration_over_time.refresh_plot(
+            df.to_dict()["time"].to_list(),
+            df.to_dict()["total_idle_duration"].to_list(),
+        )
+        self.broken_duration_over_time.refresh_plot(
+            df.to_dict()["time"].to_list(),
+            df.to_dict()["total_broken_duration"].to_list(),
+        )
+
+        # idle_ratio_df = df.select()
+
+        cycle_time_df = df.select(
+            [
+                (pl.col("time") - pl.col("time").min()),
+                (pl.col("total_parts_made") - pl.col("total_parts_made").min()),
+            ]
+        )
+        cycle_time_df = df.select(
+            pl.col("time"),
+            (pl.col("time") / pl.col("total_parts_made")).alias("cycle_time"),
+        )
+        cycle_time_df = cycle_time_df.filter(
+            ~pl.col("cycle_time").is_infinite()
+        ).fill_nan(0)
+        self.parts_cycle_time.refresh_plot(
+            cycle_time_df.to_dict()["time"].to_list(),
+            cycle_time_df.to_dict()["cycle_time"].to_list(),
+        )
 
 
 class SimulationApp(App):

@@ -20,7 +20,7 @@ Scenario:
 
 import random
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 import simpy
 from simpy.resources.store import StoreGet, StorePut
@@ -62,6 +62,24 @@ class MachineShopParams:
     )
 
 
+class MachineMetrics(TypedDict):
+    time: float | int
+    name: str
+    part_id: int | None
+    parts_made: int
+    broken: bool
+    broken_duration: float | int
+    idle_duration: float | int
+
+
+class MachineShopMetrics(TypedDict):
+    time: float | int
+    queue_items: int
+    total_parts_made: int
+    total_broken_duration: float | int
+    total_idle_duration: float | int
+
+
 class Machine:
     """A machine produces parts and may get broken every now and then.
 
@@ -85,8 +103,11 @@ class Machine:
         self.parts_made = 0
         self.part_id: int | None = None
         self.broken = False
+
+        self.machine_start = 0
         self.broken_duraton = 0
         self.idle_duration = 0
+
         self.log_parts: list[tuple[float, int]] = [(0, 0)]
         self.log_broken_duration: list[tuple[float, float]] = [(0, 0)]
         self.log_idle_duration: list[tuple[float, float]] = [(0, 0)]
@@ -103,6 +124,11 @@ class Machine:
         )
         env.process(self.break_machine(params.mean_time_to_failure))
 
+    def increment_idle_duration(self, duration: float | int):
+        self.idle_duration += duration
+        self.log_idle_duration.append((self.env.now, self.idle_duration))
+        self.idle_ratio = self.idle_duration / (self.env.now - self.machine_start)
+
     def working(
         self,
         repairman: simpy.PreemptiveResource,
@@ -117,13 +143,12 @@ class Machine:
         Request a repairman when this happens.
 
         """
+        self.machine_start = self.env.now
         while True:
             # Start making a new part
             idle_start = self.env.now
-            self.log_idle_duration.append((self.env.now, self.idle_duration))
             self.part_id = yield store.get()
-            self.idle_duration += self.env.now - idle_start
-            self.log_idle_duration.append((self.env.now, self.idle_duration))
+            self.increment_idle_duration(self.env.now - idle_start)
             done_in = self.time_per_part(mean_process_time, stdv_process_time)
             while done_in:
                 start = self.env.now
@@ -135,7 +160,6 @@ class Machine:
                 except simpy.Interrupt:
                     self.broken = True
                     broken_start = self.env.now
-                    self.log_broken_duration.append((self.env.now, self.broken_duraton))
                     done_in -= self.env.now - start  # How much time left?
 
                     # Request a repairman. This will preempt its "other_job".
@@ -225,15 +249,66 @@ class MachineShop:
         self.machines = [
             Machine(
                 env,
-                f"Machine {i + 1}",
+                f"Machine_{i + 1}",
                 self.repairman,
                 self.store,
                 params.machine_params,
             )
             for i in range(params.num_machines)
         ]
+
+        self.metrics_log: list[MachineShopMetrics] = []
+        self.machine_metrics_log: list[list[MachineMetrics]] = [
+            [] for i in range(params.num_machines)
+        ]
+
         self.env.process(part_arrival(env, self.store, params.mean_time_to_arrive))
         self.env.process(other_jobs(env, self.repairman, 30))
+        self.env.process(self.monitor_metrics(1))
+
+    def monitor_metrics(self, freq: float):
+        while True:
+            for i, machine in enumerate(self.machines):
+                self.machine_metrics_log[i].append(
+                    {
+                        "time": self.env.now,
+                        "name": machine.name,
+                        "broken": machine.broken,
+                        "broken_duration": machine.broken_duraton,
+                        "part_id": machine.part_id,
+                        "parts_made": machine.parts_made,
+                        "idle_duration": machine.idle_duration,
+                    }
+                )
+            total_parts_made = sum(
+                [
+                    machine_log[-1]["parts_made"]
+                    for machine_log in self.machine_metrics_log
+                ]
+            )
+            total_broken_duration = sum(
+                [
+                    machine_log[-1]["broken_duration"]
+                    for machine_log in self.machine_metrics_log
+                ]
+            )
+            total_idle_duration = sum(
+                [
+                    machine_log[-1]["idle_duration"]
+                    for machine_log in self.machine_metrics_log
+                ]
+            )
+
+            self.metrics_log.append(
+                {
+                    "time": self.env.now,
+                    "queue_items": len(self.store.items),
+                    "total_parts_made": total_parts_made,
+                    "total_broken_duration": total_broken_duration,
+                    "total_idle_duration": total_idle_duration,
+                }
+            )
+            yield self.env.timeout(freq)
 
 
 # # Setup and start the simulation
