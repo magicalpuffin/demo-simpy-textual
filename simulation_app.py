@@ -28,7 +28,7 @@ from textual.widgets import (
 )
 from textual_plotext import PlotextPlot
 
-from machine_shop import MachineShop, MachineShopParams
+from machine_shop import MachineMetrics, MachineShop, MachineShopParams
 
 
 # todo, update more params to be float
@@ -154,7 +154,7 @@ class SimulationControl(VerticalGroup):
         )
 
 
-class SimulationAnimation(Vertical):
+class SimulationAnimation(VerticalScroll):
     class QueueDisplay(HorizontalGroup):
         def compose(self) -> ComposeResult:
             self.border_title = "Queue"
@@ -170,22 +170,37 @@ class SimulationAnimation(Vertical):
     class MachineDisplay(Static):
         def compose(self) -> ComposeResult:
             self.border_title = self._content
-            self.active_part = Label("Part: None", id="part")
-            self.parts_made = Label("Parts Made", id="parts_made")
+            self.active_part = Label("Current Part: None", id="part")
+            self.parts_made = Label("# of Parts Made: 0", id="parts_made")
+            self.machine_status = Label("Status: Idle", id="status")
+            self.broken_duration = Label("Broken Duration: 0", id="broken_duration")
+            self.idle_duration = Label("Idle Duration: 0", id="idle_duration")
 
             yield self.active_part
             yield self.parts_made
+            yield self.machine_status
+            yield self.broken_duration
+            yield self.idle_duration
 
-        def update_part(self, part_id: None | int, broken: bool, parts_made: int):
-            self.active_part.update(f"Part: {part_id}")
-            self.parts_made.update(f"Parts Made: {parts_made}")
+        def update_machine_metrics(self, machine_log: MachineMetrics):
+            self.active_part.update(f"Current Part: {machine_log['part_id']}")
+            self.parts_made.update(f"# of Parts Made: {machine_log['parts_made']}")
+            self.broken_duration.update(
+                f"Broken Duration: {machine_log['broken_duration']:.2f}"
+            )
+            self.idle_duration.update(
+                f"Idle Duration: {machine_log['idle_duration']:.2f}"
+            )
 
-            if part_id is None:
+            if machine_log["part_id"] is None:
                 self.remove_class("active")
+                self.machine_status.update("Status: Idle")
             else:
                 self.add_class("active")
-            if broken:
+                self.machine_status.update("Status: Active")
+            if machine_log["broken"]:
                 self.add_class("broken")
+                self.machine_status.update("Status: Broken")
             else:
                 self.remove_class("broken")
 
@@ -202,11 +217,20 @@ class SimulationAnimation(Vertical):
     def update_text(self, sim: MachineShop):
         self.queue_display.update(sim.store.items.__len__())
         for i, machine_display in enumerate(self.query(self.MachineDisplay)):
-            machine_display.update_part(
-                sim.machines[i].part_id,
-                sim.machines[i].broken,
-                sim.machines[i].parts_made,
-            )
+            if len(sim.machine_metrics_log[i]) > 0:
+                machine_display.update_machine_metrics(sim.machine_metrics_log[i][-1])
+            else:
+                machine_display.update_machine_metrics(
+                    {
+                        "name": "",
+                        "broken": False,
+                        "broken_duration": 0,
+                        "idle_duration": 0,
+                        "part_id": None,
+                        "parts_made": 0,
+                        "time": 0,
+                    }
+                )
 
     def update_machine_grid(self, num: int):
         self.query_one("#machine-grid").remove_children()
