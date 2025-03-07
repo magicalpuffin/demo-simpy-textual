@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Literal, Sequence
 
+import numpy as np
 import polars as pl
 import simpy
 from textual import on
@@ -348,6 +349,14 @@ class SimulationFigures(VerticalScroll):
         def refresh_plot(self, *args: Sequence[Any]):
             self.plt.clear_data()
             self.plt.plot(*args)
+            # self.plt.ylim(0)
+            self.plt.xticks(
+                [args[0][i] for i in np.linspace(0, len(args[0]) - 1, 5, dtype=int)],
+                [
+                    f"{args[0][i]:5.2f}"
+                    for i in np.linspace(0, len(args[0]) - 1, 5, dtype=int)
+                ],
+            )
             self.refresh()
 
     def compose(self) -> ComposeResult:
@@ -366,6 +375,11 @@ class SimulationFigures(VerticalScroll):
         self.parts_cycle_time = self.LinePlot(
             title="Parts Cycle Time", xlabel="Time", ylabel="Cycle Time"
         )
+        self.broken_machines_over_time = self.LinePlot(
+            title="Broken Machines Over Time",
+            xlabel="Time",
+            ylabel="# of Broken Machines",
+        )
 
         with HorizontalGroup():
             yield self.parts_over_time
@@ -377,15 +391,16 @@ class SimulationFigures(VerticalScroll):
 
         with HorizontalGroup():
             yield self.parts_cycle_time
+            yield self.broken_machines_over_time
 
     def update_figures(self, sim: MachineShop):
         if len(sim.metrics_log) < 1:
             return
 
-        df = pl.DataFrame(sim.metrics_log).tail(50)
+        df = pl.DataFrame(sim.metrics_log).tail(100)
         self.parts_over_time.refresh_plot(
-            df.to_dict()["time"].to_list(),
-            df.to_dict()["total_parts_made"].to_list(),
+            df["time"].to_list(),
+            df["total_parts_made"].to_list(),
         )
         self.queue_over_time.refresh_plot(
             df.to_dict()["time"].to_list(), df.to_dict()["queue_items"].to_list()
@@ -417,6 +432,11 @@ class SimulationFigures(VerticalScroll):
         self.parts_cycle_time.refresh_plot(
             cycle_time_df.to_dict()["time"].to_list(),
             cycle_time_df.to_dict()["cycle_time"].to_list(),
+        )
+
+        self.broken_machines_over_time.refresh_plot(
+            df["time"].to_list(),
+            df["num_machine_broken"].to_list(),
         )
 
 
