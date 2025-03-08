@@ -21,7 +21,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
-    Markdown,
+    Log,
     ProgressBar,
     Static,
     TabbedContent,
@@ -88,18 +88,19 @@ class SimulationControl(VerticalGroup):
         )
 
     @on(Button.Pressed, "#pause-resume")
-    def pause_resume_sim(self, event: Button.Pressed):
+    def pause_resume_sim(self):
+        button = self.query_one("#pause-resume", Button)
         # todo, fix button pause resume state out of sync
         if self.paused:
             self.resume_sim()
             self.paused = False
-            event.button.label = "Pause"
-            event.button.variant = "warning"
+            button.label = "Pause"
+            button.variant = "warning"
         else:
             self.stop_sim()
             self.paused = True
-            event.button.label = "Resume"
-            event.button.variant = "success"
+            button.label = "Resume"
+            button.variant = "success"
 
     def stop_sim(self):
         if self.sim_task:
@@ -115,6 +116,7 @@ class SimulationControl(VerticalGroup):
     @on(Button.Pressed, "#reset")
     def reset_sim(self):
         self.stop_sim()
+        self.sim_task = None
         self.remove_class("started")
         self.init_simulation()
 
@@ -418,12 +420,12 @@ class SimulationFigures(VerticalScroll):
             yield self.parts_cycle_time
 
         with HorizontalGroup():
-            yield self.broken_machines_over_time
-            yield self.broken_ratio_over_time
-
-        with HorizontalGroup():
             yield self.idle_ratio_over_time
             yield self.active_ratio_over_time
+
+        with HorizontalGroup():
+            yield self.broken_machines_over_time
+            yield self.broken_ratio_over_time
 
     def update_figures(self, sim: MachineShop):
         if len(sim.metrics_log) < 1:
@@ -486,6 +488,11 @@ class SimulationApp(App):
 
     CSS_PATH = "./simulation_app.tcss"
 
+    BINDINGS = [
+        ("space", "start_simulation", "Start, pause and resume simulation"),
+        ("k", "reset_simulation", "Reset simulation"),
+    ]
+
     def compose(self) -> ComposeResult:
         """Create UI elements."""
         self.animation = SimulationAnimation(id="sim_animation")
@@ -500,13 +507,19 @@ class SimulationApp(App):
         with TabbedContent("Simulation", "Params", "Logs", "Figures", id="content"):
             yield self.animation
             yield self.inputs
-            yield Markdown()
+            yield Log()
             yield self.figures
 
     @on(SimulationControl.SimulationIteration)
     def animate_iteration(self, message: SimulationControl.SimulationIteration):
         self.animation.update_text(message.sim)
         self.figures.update_figures(message.sim)
+        if len(message.sim.metrics_log) > 0:
+            self.query_one(Log).write_line(
+                f"{message.sim.env.now} {message.sim.metrics_log[-1]}"
+            )
+        else:
+            self.query_one(Log).clear()
 
     @on(SimulationInputs.SimulationControlParamsUpdated)
     def simulation_control_params_update(
@@ -520,6 +533,15 @@ class SimulationApp(App):
     ):
         self.animation.update_machine_grid(message.params.num_machines)
         self.control.update_machine_shop_params(message.params)
+
+    def action_start_simulation(self):
+        if self.control.sim_task:
+            self.control.pause_resume_sim()
+        else:
+            self.control.start_sim()
+
+    def action_reset_simulation(self):
+        self.control.reset_sim()
 
 
 if __name__ == "__main__":
