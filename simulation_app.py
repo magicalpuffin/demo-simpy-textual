@@ -390,11 +390,11 @@ class SimulationFigures(VerticalScroll):
         self.queue_over_time = self.LinePlot(
             title="Queue Over Time", xlabel="Time", ylabel="# in Queue"
         )
-        self.idle_duration_over_time = self.LinePlot(
-            title="Idle Duration Over Time", xlabel="Time", ylabel="Idle Duration"
+        self.idle_ratio_over_time = self.LinePlot(
+            title="Machine Idle Ratio Over Time", xlabel="Time", ylabel="Idle Ratio"
         )
-        self.broken_duration_over_time = self.LinePlot(
-            title="Broken Duration Over Time", xlabel="Time", ylabel="Broken Duration"
+        self.broken_ratio_over_time = self.LinePlot(
+            title="Machine Broken Ratio Over Time", xlabel="Time", ylabel="Broken Ratio"
         )
         self.parts_cycle_time = self.LinePlot(
             title="Parts Cycle Time", xlabel="Time", ylabel="Cycle Time"
@@ -404,18 +404,26 @@ class SimulationFigures(VerticalScroll):
             xlabel="Time",
             ylabel="# of Broken Machines",
         )
+        self.active_ratio_over_time = self.LinePlot(
+            title="Active Machines Over Time",
+            xlabel="Time",
+            ylabel="Percentage of Machines Active",
+        )
 
         with HorizontalGroup():
-            yield self.parts_over_time
             yield self.queue_over_time
 
         with HorizontalGroup():
-            yield self.idle_duration_over_time
-            yield self.broken_duration_over_time
+            yield self.parts_over_time
+            yield self.parts_cycle_time
 
         with HorizontalGroup():
-            yield self.parts_cycle_time
             yield self.broken_machines_over_time
+            yield self.broken_ratio_over_time
+
+        with HorizontalGroup():
+            yield self.idle_ratio_over_time
+            yield self.active_ratio_over_time
 
     def update_figures(self, sim: MachineShop):
         if len(sim.metrics_log) < 1:
@@ -427,18 +435,20 @@ class SimulationFigures(VerticalScroll):
             df["total_parts_made"].to_list(),
         )
         self.queue_over_time.refresh_plot(
-            df.to_dict()["time"].to_list(), df.to_dict()["queue_items"].to_list()
+            df["time"].to_list(), df["queue_items"].to_list()
         )
-        self.idle_duration_over_time.refresh_plot(
-            df.to_dict()["time"].to_list(),
-            df.to_dict()["total_idle_duration"].to_list(),
+        self.idle_ratio_over_time.refresh_plot(
+            df["time"].to_list(),
+            df.select(
+                pl.col("total_idle_duration") / pl.col("time") / len(sim.machines)
+            )["total_idle_duration"].to_list(),
         )
-        self.broken_duration_over_time.refresh_plot(
-            df.to_dict()["time"].to_list(),
-            df.to_dict()["total_broken_duration"].to_list(),
+        self.broken_ratio_over_time.refresh_plot(
+            df["time"].to_list(),
+            df.select(
+                pl.col("total_broken_duration") / pl.col("time") / len(sim.machines)
+            )["total_broken_duration"].to_list(),
         )
-
-        # idle_ratio_df = df.select()
 
         cycle_time_df = df.select(
             [
@@ -454,13 +464,20 @@ class SimulationFigures(VerticalScroll):
             ~pl.col("cycle_time").is_infinite()
         ).fill_nan(0)
         self.parts_cycle_time.refresh_plot(
-            cycle_time_df.to_dict()["time"].to_list(),
-            cycle_time_df.to_dict()["cycle_time"].to_list(),
+            cycle_time_df["time"].to_list(),
+            cycle_time_df["cycle_time"].to_list(),
         )
 
         self.broken_machines_over_time.refresh_plot(
             df["time"].to_list(),
             df["num_machine_broken"].to_list(),
+        )
+
+        self.active_ratio_over_time.refresh_plot(
+            df["time"].to_list(),
+            df.select(pl.col("num_machine_active") / len(sim.machines))[
+                "num_machine_active"
+            ].to_list(),
         )
 
 

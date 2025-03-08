@@ -79,6 +79,7 @@ class MachineShopMetrics(TypedDict):
     total_broken_duration: float | int
     total_idle_duration: float | int
     num_machine_broken: int
+    num_machine_active: int
 
 
 class Machine:
@@ -302,7 +303,12 @@ class MachineShop:
             num_machine_broken = sum(
                 [machine_log[-1]["broken"] for machine_log in self.machine_metrics_log]
             )
-
+            num_machine_active = sum(
+                [
+                    1 if machine_log[-1]["part_id"] else 0
+                    for machine_log in self.machine_metrics_log
+                ]
+            )
             self.metrics_log.append(
                 {
                     "time": self.env.now,
@@ -311,6 +317,7 @@ class MachineShop:
                     "total_broken_duration": total_broken_duration,
                     "total_idle_duration": total_idle_duration,
                     "num_machine_broken": num_machine_broken,
+                    "num_machine_active": num_machine_active,
                 }
             )
             yield self.env.timeout(freq)
